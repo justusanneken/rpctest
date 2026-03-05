@@ -11,6 +11,7 @@ app = Flask(__name__)
 # Variablen
 latest_photo = None
 motion_detected = False
+motion_enabled = True
 previous_frame = None
 
 # Bewegungserkennung
@@ -36,7 +37,7 @@ def detection_loop():
                     # Pxel anzahl zählen
                     changed_pixels = cv2.countNonZero(thresh)
                     # wenn genug änderung frame =grau
-                    motion_detected = changed_pixels > 3000
+                    motion_detected = motion_enabled and changed_pixels > 3000
                     previous_frame = grey
         time.sleep(0.2)
 
@@ -54,6 +55,15 @@ def upload():
 @app.route('/status')
 def status():
     return jsonify({"motion": motion_detected})
+
+# Bewegungserkennung an/aus schalten
+@app.route('/motion/toggle', methods=['POST'])
+def motion_toggle():
+    global motion_enabled, motion_detected
+    motion_enabled = not motion_enabled
+    if not motion_enabled:
+        motion_detected = False
+    return jsonify({"motion_enabled": motion_enabled})
 
 # livestream vom browser aufgerufen
 @app.route('/stream')

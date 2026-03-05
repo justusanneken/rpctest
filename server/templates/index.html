@@ -4,30 +4,68 @@
     <title>Pi Camera</title>
     <style>
         body {
-            background-color: black;
+            background-color: #111;
             color: white;
             text-align: center;
             font-family: Arial, sans-serif;
-            padding-top: 40px;
+            padding-top: 30px;
+        }
+
+        #stream-container {
+            display: inline-block;
+            position: relative;
         }
 
         img {
             width: 800px;
             border: 2px solid gray;
+            display: block;
         }
 
-        /*Rote Box*/
         #alert {
-            display: none;
             background-color: red;
             color: white;
-            font-size: 28px;
+            font-size: 24px;
             font-weight: bold;
-            padding: 14px 30px;
+            padding: 10px 24px;
             border-radius: 8px;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
             display: inline-block;
             visibility: hidden;
+        }
+
+        #controls {
+            margin-top: 16px;
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background-color: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 10px 20px;
+            font-size: 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #555;
+        }
+
+        button.active {
+            background-color: #c0392b;
+            border-color: #e74c3c;
+        }
+
+        #rotation-label {
+            color: #aaa;
+            font-size: 13px;
+            margin-top: 10px;
         }
     </style>
 </head>
@@ -35,22 +73,97 @@
 
     <div id="alert">⚠ Bewegung erkannt!!</div>
 
-    
-    <br/>
-    <img src="/stream" />
+    <div id="stream-container">
+        <img id="stream" src="/stream" />
+    </div>
+
+    <div id="controls">
+        <button onclick="togglePause()" id="btn-pause">⏸ Pausieren</button>
+        <button onclick="takeSnapshot()">📸 Snapshot</button>
+        <button onclick="toggleMotion()" id="btn-motion">🔴 Bewegung: AN</button>
+        <button onclick="rotateStream()">🔄 Drehen</button>
+        <button onclick="toggleFullscreen()">⛶ Vollbild</button>
+    </div>
+    <div id="rotation-label">Rotation: 0°</div>
 
     <script>
-        //Bewegungserkennungs Abfrage
+        var paused = false;
+        var streamSrc = '/stream';
+        var motionEnabled = true;
+        var rotation = 0;
+
+        // Pause / Resume
+        function togglePause() {
+            var img = document.getElementById('stream');
+            var btn = document.getElementById('btn-pause');
+            if (paused) {
+                img.src = streamSrc + '?t=' + Date.now();
+                btn.textContent = '⏸ Pausieren';
+                btn.classList.remove('active');
+                paused = false;
+            } else {
+                img.src = '';
+                btn.textContent = '▶ Fortsetzen';
+                btn.classList.add('active');
+                paused = true;
+            }
+        }
+
+        // Snapshot herunterladen
+        function takeSnapshot() {
+            var img = document.getElementById('stream');
+            var canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
+            canvas.getContext('2d').drawImage(img, 0, 0);
+            var link = document.createElement('a');
+            link.download = 'snapshot_' + Date.now() + '.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // Bewegungserkennung an/aus
+        function toggleMotion() {
+            fetch('/motion/toggle', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    motionEnabled = data.motion_enabled;
+                    var btn = document.getElementById('btn-motion');
+                    if (motionEnabled) {
+                        btn.textContent = '🔴 Bewegung: AN';
+                        btn.classList.remove('active');
+                    } else {
+                        btn.textContent = '⚫ Bewegung: AUS';
+                        btn.classList.add('active');
+                    }
+                });
+        }
+
+        // Stream drehen (client-seitig)
+        function rotateStream() {
+            rotation = (rotation + 90) % 360;
+            document.getElementById('stream').style.transform = 'rotate(' + rotation + 'deg)';
+            document.getElementById('rotation-label').textContent = 'Rotation: ' + rotation + '°';
+        }
+
+        // Vollbild
+        function toggleFullscreen() {
+            var el = document.getElementById('stream');
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                el.requestFullscreen();
+            }
+        }
+
+        // Bewegungserkennungs Abfrage
         setInterval(function() {
+            if (!motionEnabled) return;
             fetch('/status')
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
-                    var alert = document.getElementById('alert');
-                    if (data.motion) {
-                        alert.style.visibility = 'visible';
-                    } else {
-                        alert.style.visibility = 'hidden';
-                    }
+                    var alertBox = document.getElementById('alert');
+                    alertBox.style.visibility = data.motion ? 'visible' : 'hidden';
                 });
         }, 1000);
     </script>

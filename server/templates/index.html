@@ -1,7 +1,524 @@
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
-    <title>Pi Camera</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RPC Surveillance</title>
+    <style>
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:#0a0a0a;color:#ddd;font-family:'Courier New',monospace;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+        /* ── Header ── */
+        #hdr{background:#0f0f0f;border-bottom:1px solid #1a1a1a;padding:6px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:12px}
+        #hdr-title{font-size:15px;color:#0f0;letter-spacing:4px;white-space:nowrap}
+        #hdr-right{display:flex;gap:14px;align-items:center;font-size:11px;flex-wrap:wrap}
+        .badge{display:flex;align-items:center;gap:5px;padding:2px 8px;border-radius:3px;border:1px solid #222;white-space:nowrap}
+        .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+        .dot-live{background:#0f0;box-shadow:0 0 5px #0f0;animation:blink 1.4s infinite}
+        .dot-rec{background:red;box-shadow:0 0 5px red;animation:blink .6s infinite}
+        .dot-off{background:#333}
+        @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+        #badge-motion{display:none;color:#f70;border-color:#f70}
+        #badge-rec{display:none;color:red;border-color:red}
+
+        /* ── Layout ── */
+        #body{display:flex;flex:1;overflow:hidden}
+
+        /* ── Stream pane ── */
+        #stream-pane{flex:1;background:#000;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+        #stream-wrap{position:relative;display:inline-block}
+        #stream{display:block;max-width:100%;max-height:calc(100vh - 44px)}
+        #ov-timestamp{position:absolute;top:8px;left:8px;font-size:11px;color:#0f0;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:3px;pointer-events:none;letter-spacing:1px}
+        #ov-live{position:absolute;top:8px;right:8px;font-size:10px;color:#0f0;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:3px;pointer-events:none;letter-spacing:2px;display:flex;align-items:center;gap:5px}
+        #ov-rec{position:absolute;top:28px;right:8px;font-size:10px;color:red;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:3px;pointer-events:none;display:none;letter-spacing:2px}
+        #motion-border{position:absolute;inset:0;border:3px solid red;pointer-events:none;display:none;animation:blink .4s infinite}
+        #no-signal{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:#333;letter-spacing:3px;pointer-events:none}
+
+        /* ── Control panel ── */
+        #panel{width:290px;flex-shrink:0;background:#0f0f0f;border-left:1px solid #1a1a1a;display:flex;flex-direction:column;overflow:hidden}
+        #tabs{display:flex;flex-wrap:wrap;border-bottom:1px solid #1a1a1a;flex-shrink:0}
+        .tb{flex:1;min-width:40px;padding:7px 2px;background:none;border:none;border-bottom:2px solid transparent;color:#444;font-size:9px;letter-spacing:1px;cursor:pointer;font-family:inherit;transition:all .15s;text-transform:uppercase}
+        .tb:hover{color:#888}
+        .tb.on{color:#0f0;border-bottom-color:#0f0}
+        #tab-body{flex:1;overflow-y:auto;padding:12px}
+        .tp{display:none}
+        .tp.on{display:block}
+
+        /* ── Controls ── */
+        .sec{margin-bottom:14px}
+        .sec-title{font-size:9px;color:#0f0;letter-spacing:2px;text-transform:uppercase;margin-bottom:7px;border-bottom:1px solid #1a1a1a;padding-bottom:3px}
+        .btn{background:#161616;color:#bbb;border:1px solid #2a2a2a;padding:7px 10px;font-size:11px;border-radius:3px;cursor:pointer;font-family:inherit;width:100%;margin-bottom:5px;text-align:left;transition:all .15s;display:flex;align-items:center;gap:6px}
+        .btn:hover{background:#222;border-color:#444}
+        .btn.on-red{background:#1a0000;border-color:#a00;color:#f55}
+        .btn.on-grn{background:#001a00;border-color:#080;color:#0f0}
+        .g2{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+        .g2 .btn{margin-bottom:0}
+        label.sl{display:flex;justify-content:space-between;font-size:10px;color:#777;margin-bottom:3px}
+        input[type=range]{width:100%;accent-color:#0f0;margin-bottom:8px;height:3px}
+        select{background:#161616;color:#bbb;border:1px solid #2a2a2a;padding:6px 8px;width:100%;border-radius:3px;font-family:inherit;font-size:11px;margin-bottom:5px}
+
+        /* ── Stat rows ── */
+        .sr{display:flex;justify-content:space-between;font-size:11px;padding:4px 0;border-bottom:1px solid #161616}
+        .sv{color:#0f0}
+
+        /* ── Event log ── */
+        .ev{padding:4px 0;border-bottom:1px solid #161616;display:grid;grid-template-columns:50px 60px 1fr;gap:4px;font-size:10px}
+        .et{color:#555}
+        .ek{color:#0f0}
+        .ek-motion{color:#f70}
+        .ek-snapshot{color:#39f}
+        .ek-recording{color:red}
+        .ek-config{color:#a0f}
+        .ed{color:#888;word-break:break-all}
+
+        /* ── Gallery ── */
+        #gallery{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+        .gi img{width:100%;border:1px solid #222;border-radius:2px;cursor:pointer;display:block}
+        .gi span{font-size:8px;color:#444;display:block;text-align:center;margin-top:2px}
+        .gi-del{font-size:9px;color:#600;background:none;border:none;cursor:pointer;font-family:inherit;width:100%;text-align:center;padding:1px 0}
+        .gi-del:hover{color:#f00}
+
+        /* ── Recordings ── */
+        .ri{display:flex;justify-content:space-between;align-items:center;font-size:10px;padding:5px 0;border-bottom:1px solid #161616}
+        .ri a{color:#0f0;text-decoration:none}
+        .ri a:hover{text-decoration:underline}
+
+        /* ── Toast ── */
+        #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#111;color:#0f0;border:1px solid #0f0;padding:7px 18px;border-radius:3px;font-size:11px;z-index:999;display:none;white-space:nowrap}
+
+        /* Scrollbar */
+        ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:#0a0a0a}::-webkit-scrollbar-thumb{background:#222}
+    </style>
+</head>
+<body>
+
+<div id="hdr">
+    <div id="hdr-title">⬛ RPC SURVEILLANCE</div>
+    <div id="hdr-right">
+        <div class="badge"><div class="dot dot-live"></div><span>LIVE</span></div>
+        <div class="badge" id="badge-rec"><div class="dot dot-rec"></div><span>REC</span></div>
+        <div class="badge" id="badge-motion">⚠ BEWEGUNG</div>
+        <div class="badge"><span id="fps-lbl">-- FPS</span></div>
+        <div class="badge"><span id="uptime-lbl">00:00:00</span></div>
+    </div>
+</div>
+
+<div id="body">
+    <!-- Stream -->
+    <div id="stream-pane">
+        <div id="stream-wrap">
+            <img id="stream" src="/stream">
+            <div id="ov-timestamp">--</div>
+            <div id="ov-live"><div class="dot dot-live"></div>LIVE</div>
+            <div id="ov-rec">● REC</div>
+            <div id="motion-border"></div>
+        </div>
+        <div id="no-signal">NO SIGNAL</div>
+    </div>
+
+    <!-- Panel -->
+    <div id="panel">
+        <div id="tabs">
+            <button class="tb on"  onclick="tab(this,'stream')">STREAM</button>
+            <button class="tb"     onclick="tab(this,'image')">BILD</button>
+            <button class="tb"     onclick="tab(this,'motion')">MOTION</button>
+            <button class="tb"     onclick="tab(this,'rec')">REC</button>
+            <button class="tb"     onclick="tab(this,'gallery')">FOTOS</button>
+            <button class="tb"     onclick="tab(this,'events')">LOG</button>
+            <button class="tb"     onclick="tab(this,'stats')">STATS</button>
+        </div>
+
+        <div id="tab-body">
+
+            <!-- STREAM -->
+            <div id="tp-stream" class="tp on">
+                <div class="sec">
+                    <div class="sec-title">Wiedergabe</div>
+                    <button class="btn" id="btn-pause" onclick="togglePause()">⏸ Pausieren</button>
+                    <button class="btn" onclick="toggleFullscreen()">⛶ Vollbild</button>
+                </div>
+                <div class="sec">
+                    <div class="sec-title">JPEG Qualität</div>
+                    <label class="sl"><span>Qualität</span><span id="q-val">80%</span></label>
+                    <input type="range" min="10" max="100" value="80" oninput="setQuality(this.value)">
+                </div>
+                <div class="sec">
+                    <div class="sec-title">Ausrichtung</div>
+                    <div class="g2">
+                        <button class="btn" onclick="rotate(90)">↻ +90°</button>
+                        <button class="btn" onclick="rotate(-90)">↺ −90°</button>
+                        <button class="btn" id="btn-fh" onclick="flipH()">⇄ Flip H</button>
+                        <button class="btn" id="btn-fv" onclick="flipV()">⇅ Flip V</button>
+                    </div>
+                    <button class="btn" onclick="resetXform()" style="margin-top:5px">✕ Reset Ausrichtung</button>
+                </div>
+                <div class="sec">
+                    <div class="sec-title">Zoom</div>
+                    <label class="sl"><span>Zoom</span><span id="zoom-val">100%</span></label>
+                    <input id="zoom-sl" type="range" min="30" max="400" value="100" oninput="setZoom(this.value)">
+                </div>
+            </div>
+
+            <!-- IMAGE -->
+            <div id="tp-image" class="tp">
+                <div class="sec">
+                    <div class="sec-title">Bildanpassung</div>
+                    <label class="sl"><span>Helligkeit</span><span id="br-val">100%</span></label>
+                    <input id="br-sl" type="range" min="0" max="300" value="100" oninput="setFilter()">
+                    <label class="sl"><span>Kontrast</span><span id="co-val">100%</span></label>
+                    <input id="co-sl" type="range" min="0" max="300" value="100" oninput="setFilter()">
+                    <label class="sl"><span>Sättigung</span><span id="sa-val">100%</span></label>
+                    <input id="sa-sl" type="range" min="0" max="300" value="100" oninput="setFilter()">
+                    <label class="sl"><span>Unschärfe</span><span id="bl-val">0px</span></label>
+                    <input id="bl-sl" type="range" min="0" max="10" value="0" step="0.5" oninput="setFilter()">
+                    <button class="btn" onclick="resetFilters()">✕ Filter zurücksetzen</button>
+                </div>
+                <div class="sec">
+                    <div class="sec-title">Filter Preset</div>
+                    <button class="btn" onclick="preset('normal')">◉ Normal</button>
+                    <button class="btn" onclick="preset('night')">🌙 Nachtsicht</button>
+                    <button class="btn" onclick="preset('grey')">⬜ Graustufen</button>
+                    <button class="btn" onclick="preset('heat')">🔴 Wärmebild</button>
+                    <button class="btn" onclick="preset('invert')">⬛ Invertiert</button>
+                    <button class="btn" onclick="preset('vivid')">✨ Kräftig</button>
+                </div>
+            </div>
+
+            <!-- MOTION -->
+            <div id="tp-motion" class="tp">
+                <div class="sec">
+                    <div class="sec-title">Erkennung</div>
+                    <button class="btn on-grn" id="btn-motion" onclick="toggleMotion()">🟢 Erkennung: AN</button>
+                    <button class="btn" id="btn-autosnap" onclick="toggleAutoSnap()">📸 Auto-Snap: AUS</button>
+                    <button class="btn" id="btn-sound" onclick="toggleSound()">🔕 Ton-Alarm: AUS</button>
+                </div>
+                <div class="sec">
+                    <div class="sec-title">Empfindlichkeit</div>
+                    <label class="sl"><span>Pixel-Schwelle</span><span id="sens-val">3000</span></label>
+                    <input id="sens-sl" type="range" min="100" max="20000" value="3000" step="100" oninput="setSens(this.value)">
+                    <div style="font-size:9px;color:#444;margin-top:-4px">Niedrig = empfindlicher</div>
+                </div>
+            </div>
+
+            <!-- REC -->
+            <div id="tp-rec" class="tp">
+                <div class="sec">
+                    <div class="sec-title">Aufnahme</div>
+                    <button class="btn" id="btn-rec" onclick="toggleRec()">⏺ Aufnahme starten</button>
+                    <button class="btn" onclick="takeSnap()">📸 Snapshot speichern</button>
+                </div>
+                <div class="sec">
+                    <div class="sec-title">Aufnahmen</div>
+                    <div id="rec-list"><div style="font-size:10px;color:#333">Lädt…</div></div>
+                    <button class="btn" onclick="loadRecs()" style="margin-top:6px">↻ Aktualisieren</button>
+                </div>
+            </div>
+
+            <!-- GALLERY -->
+            <div id="tp-gallery" class="tp">
+                <div class="sec">
+                    <button class="btn" onclick="loadGallery()">↻ Aktualisieren</button>
+                    <div id="gallery"></div>
+                </div>
+            </div>
+
+            <!-- EVENTS -->
+            <div id="tp-events" class="tp">
+                <div class="sec">
+                    <button class="btn on-red" onclick="clearEvts()">✕ Log leeren</button>
+                    <div id="evt-list"></div>
+                </div>
+            </div>
+
+            <!-- STATS -->
+            <div id="tp-stats" class="tp">
+                <div class="sec">
+                    <div class="sec-title">System</div>
+                    <div class="sr"><span>Laufzeit</span><span class="sv" id="st-uptime">--</span></div>
+                    <div class="sr"><span>Frames empfangen</span><span class="sv" id="st-frames">--</span></div>
+                    <div class="sr"><span>Live FPS</span><span class="sv" id="st-fps">--</span></div>
+                    <div class="sr"><span>JPEG Qualität</span><span class="sv" id="st-q">--</span></div>
+                    <div class="sr"><span>Bewegungserkennung</span><span class="sv" id="st-mot">--</span></div>
+                    <div class="sr"><span>Auto-Snapshot</span><span class="sv" id="st-as">--</span></div>
+                    <div class="sr"><span>Aufnahme aktiv</span><span class="sv" id="st-rec">--</span></div>
+                    <div class="sr"><span>Pixel-Schwelle</span><span class="sv" id="st-sens">--</span></div>
+                </div>
+            </div>
+
+        </div><!-- /tab-body -->
+    </div><!-- /panel -->
+</div><!-- /body -->
+
+<div id="toast"></div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+var paused=false, rot=0, fH=false, fV=false, zoom=100;
+var motionOn=true, autoSnap=false, soundOn=false, recOn=false;
+var lastFrame=Date.now(), fps=0, fpsFrames=0;
+var extraFilter='';
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+function tab(btn, name) {
+    document.querySelectorAll('.tb').forEach(b=>b.classList.remove('on'));
+    document.querySelectorAll('.tp').forEach(p=>p.classList.remove('on'));
+    btn.classList.add('on');
+    document.getElementById('tp-'+name).classList.add('on');
+    if(name==='gallery') loadGallery();
+    if(name==='rec')     loadRecs();
+    if(name==='events')  loadEvts();
+    if(name==='stats')   loadStats();
+}
+
+// ── FPS counter ───────────────────────────────────────────────────────────────
+document.getElementById('stream').addEventListener('load', function(){
+    var now=Date.now(), d=now-lastFrame;
+    if(d>0) fps=Math.round(1000/d);
+    lastFrame=now; fpsFrames++;
+    document.getElementById('fps-lbl').textContent=fps+' FPS';
+    document.getElementById('st-fps').textContent=fps+' FPS';
+    document.getElementById('no-signal').style.display='none';
+});
+
+// ── Clock overlay ─────────────────────────────────────────────────────────────
+setInterval(function(){
+    var now=new Date();
+    document.getElementById('ov-timestamp').textContent=
+        now.toLocaleDateString('de-DE')+' '+now.toLocaleTimeString('de-DE');
+},500);
+
+// ── Transform ────────────────────────────────────────────────────────────────
+function applyXform(){
+    var img=document.getElementById('stream');
+    var sx=(fH?-1:1)*(zoom/100), sy=(fV?-1:1)*(zoom/100);
+    img.style.transform='rotate('+rot+'deg) scale('+sx+','+sy+')';
+    img.style.transformOrigin='center center';
+}
+function rotate(d){ rot=(rot+d+360)%360; applyXform(); }
+function flipH(){ fH=!fH; document.getElementById('btn-fh').classList.toggle('on-grn',fH); applyXform(); }
+function flipV(){ fV=!fV; document.getElementById('btn-fv').classList.toggle('on-grn',fV); applyXform(); }
+function setZoom(v){ zoom=parseInt(v); document.getElementById('zoom-val').textContent=v+'%'; applyXform(); }
+function resetXform(){
+    rot=0;fH=false;fV=false;zoom=100;
+    document.getElementById('btn-fh').classList.remove('on-grn');
+    document.getElementById('btn-fv').classList.remove('on-grn');
+    document.getElementById('zoom-sl').value=100;
+    document.getElementById('zoom-val').textContent='100%';
+    applyXform();
+}
+
+// ── Pause / Fullscreen ────────────────────────────────────────────────────────
+function togglePause(){
+    var img=document.getElementById('stream'), btn=document.getElementById('btn-pause');
+    paused=!paused;
+    img.src=paused?'':'/stream?t='+Date.now();
+    btn.textContent=paused?'▶ Fortsetzen':'⏸ Pausieren';
+    btn.classList.toggle('on-red',paused);
+}
+function toggleFullscreen(){
+    var el=document.getElementById('stream');
+    document.fullscreenElement?document.exitFullscreen():el.requestFullscreen();
+}
+
+// ── Quality ───────────────────────────────────────────────────────────────────
+function setQuality(v){
+    document.getElementById('q-val').textContent=v+'%';
+    fetch('/quality',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:+v})});
+}
+
+// ── Image filters ─────────────────────────────────────────────────────────────
+function setFilter(){
+    var br=document.getElementById('br-sl').value;
+    var co=document.getElementById('co-sl').value;
+    var sa=document.getElementById('sa-sl').value;
+    var bl=document.getElementById('bl-sl').value;
+    document.getElementById('br-val').textContent=br+'%';
+    document.getElementById('co-val').textContent=co+'%';
+    document.getElementById('sa-val').textContent=sa+'%';
+    document.getElementById('bl-val').textContent=bl+'px';
+    document.getElementById('stream').style.filter=
+        'brightness('+br+'%) contrast('+co+'%) saturate('+sa+'%) blur('+bl+'px)'+extraFilter;
+}
+function resetFilters(){
+    ['br','co','sa'].forEach(function(id){document.getElementById(id+'-sl').value=100;});
+    document.getElementById('bl-sl').value=0;
+    extraFilter=''; setFilter();
+}
+function preset(p){
+    var map={
+        normal: [100,100,100,0,''],
+        night:  [70, 160,0,  0,' hue-rotate(100deg)'],
+        grey:   [100,130,0,  0,''],
+        heat:   [110,130,220,0,' hue-rotate(190deg)'],
+        invert: [100,100,100,0,' invert(1)'],
+        vivid:  [110,140,200,0,''],
+    };
+    var v=map[p];
+    document.getElementById('br-sl').value=v[0];
+    document.getElementById('co-sl').value=v[1];
+    document.getElementById('sa-sl').value=v[2];
+    document.getElementById('bl-sl').value=v[3];
+    extraFilter=v[4]; setFilter();
+}
+
+// ── Motion ────────────────────────────────────────────────────────────────────
+function toggleMotion(){
+    fetch('/motion/toggle',{method:'POST'}).then(r=>r.json()).then(function(d){
+        motionOn=d.motion_enabled;
+        var btn=document.getElementById('btn-motion');
+        btn.textContent=motionOn?'🟢 Erkennung: AN':'🔴 Erkennung: AUS';
+        btn.classList.toggle('on-grn',motionOn);
+        btn.classList.toggle('on-red',!motionOn);
+    });
+}
+function toggleAutoSnap(){
+    fetch('/auto_snapshot/toggle',{method:'POST'}).then(r=>r.json()).then(function(d){
+        autoSnap=d.auto_snapshot;
+        var btn=document.getElementById('btn-autosnap');
+        btn.textContent='📸 Auto-Snap: '+(autoSnap?'AN':'AUS');
+        btn.classList.toggle('on-grn',autoSnap);
+    });
+}
+function toggleSound(){
+    soundOn=!soundOn;
+    var btn=document.getElementById('btn-sound');
+    btn.textContent=(soundOn?'🔔 Ton-Alarm: AN':'🔕 Ton-Alarm: AUS');
+    btn.classList.toggle('on-grn',soundOn);
+}
+var sensTimer;
+function setSens(v){
+    document.getElementById('sens-val').textContent=v;
+    clearTimeout(sensTimer);
+    sensTimer=setTimeout(function(){
+        fetch('/sensitivity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:+v})});
+    },300);
+}
+
+// ── Recording ─────────────────────────────────────────────────────────────────
+function toggleRec(){
+    fetch('/record/toggle',{method:'POST'}).then(r=>r.json()).then(function(d){
+        recOn=d.recording;
+        var btn=document.getElementById('btn-rec');
+        btn.textContent=recOn?'⏹ Aufnahme stoppen':'⏺ Aufnahme starten';
+        btn.classList.toggle('on-red',recOn);
+        document.getElementById('badge-rec').style.display=recOn?'flex':'none';
+        document.getElementById('ov-rec').style.display=recOn?'block':'none';
+        if(!recOn) loadRecs();
+    });
+}
+
+// ── Snapshot ──────────────────────────────────────────────────────────────────
+function takeSnap(){
+    fetch('/snapshot',{method:'POST'}).then(r=>r.json()).then(function(d){
+        if(d.success) toast('📸 Gespeichert: '+d.filename);
+        else toast('❌ Kein Bild verfügbar');
+    });
+}
+
+// ── Gallery ───────────────────────────────────────────────────────────────────
+function loadGallery(){
+    fetch('/snapshots').then(r=>r.json()).then(function(d){
+        var g=document.getElementById('gallery');
+        if(!d.snapshots.length){g.innerHTML='<div style="font-size:10px;color:#333;grid-column:1/-1">Keine Snapshots</div>';return;}
+        g.innerHTML=d.snapshots.map(function(f){
+            var label=f.replace('snap_','').replace('.jpg','').replace(/_/g,' ');
+            return '<div class="gi">'
+                +'<img src="/snapshots/'+f+'" loading="lazy" onclick="window.open(\'/snapshots/'+f+'\')" title="'+f+'">'
+                +'<span>'+label+'</span>'
+                +'<button class="gi-del" onclick="delSnap(\''+f+'\',this.parentNode)">× löschen</button>'
+                +'</div>';
+        }).join('');
+    });
+}
+function delSnap(f, node){
+    fetch('/snapshots/'+f,{method:'DELETE'}).then(function(){node.remove();toast('🗑 Gelöscht');});
+}
+
+// ── Recordings ────────────────────────────────────────────────────────────────
+function loadRecs(){
+    fetch('/recordings').then(r=>r.json()).then(function(d){
+        var list=document.getElementById('rec-list');
+        if(!d.recordings.length){list.innerHTML='<div style="font-size:10px;color:#333">Keine Aufnahmen</div>';return;}
+        list.innerHTML=d.recordings.map(function(f){
+            return '<div class="ri"><span style="color:#888">'+f+'</span><a href="/recordings/'+f+'" download>↓ DL</a></div>';
+        }).join('');
+    });
+}
+
+// ── Event log ─────────────────────────────────────────────────────────────────
+function loadEvts(){
+    fetch('/events').then(r=>r.json()).then(function(d){
+        var list=document.getElementById('evt-list');
+        if(!d.events.length){list.innerHTML='<div style="font-size:10px;color:#333">Keine Ereignisse</div>';return;}
+        list.innerHTML=d.events.map(function(e){
+            return '<div class="ev">'
+                +'<span class="et">'+e.time+'</span>'
+                +'<span class="ek ek-'+e.type+'">'+e.type.toUpperCase()+'</span>'
+                +'<span class="ed">'+e.detail+'</span>'
+                +'</div>';
+        }).join('');
+    });
+}
+function clearEvts(){
+    fetch('/events',{method:'DELETE'}).then(function(){
+        document.getElementById('evt-list').innerHTML='<div style="font-size:10px;color:#333">Log geleert</div>';
+    });
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function loadStats(){
+    fetch('/stats').then(r=>r.json()).then(function(d){
+        var h=Math.floor(d.uptime/3600), m=Math.floor((d.uptime%3600)/60), s=d.uptime%60;
+        var us=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+        document.getElementById('st-uptime').textContent=us;
+        document.getElementById('uptime-lbl').textContent=us;
+        document.getElementById('st-frames').textContent=d.frames;
+        document.getElementById('st-q').textContent=d.quality+'%';
+        document.getElementById('st-mot').textContent=d.motion_enabled?'AN':'AUS';
+        document.getElementById('st-as').textContent=d.auto_snapshot?'AN':'AUS';
+        document.getElementById('st-rec').textContent=d.recording?'AN':'AUS';
+        document.getElementById('st-sens').textContent=d.sensitivity;
+    });
+}
+
+// ── Motion polling ────────────────────────────────────────────────────────────
+setInterval(function(){
+    fetch('/status').then(r=>r.json()).then(function(d){
+        var mb=document.getElementById('badge-motion');
+        var mf=document.getElementById('motion-border');
+        if(d.motion){
+            mb.style.display='flex'; mf.style.display='block';
+            if(soundOn){
+                try{var c=new AudioContext(),o=c.createOscillator();o.connect(c.destination);o.frequency.value=880;o.start();o.stop(c.currentTime+0.08);}catch(e){}
+            }
+        } else {
+            mb.style.display='none'; mf.style.display='none';
+        }
+    });
+},1000);
+
+// ── Auto-refresh active tab data ──────────────────────────────────────────────
+setInterval(function(){
+    var active=document.querySelector('.tp.on');
+    if(!active) return;
+    var id=active.id;
+    if(id==='tp-events') loadEvts();
+    if(id==='tp-stats')  loadStats();
+},3000);
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function toast(msg){
+    var t=document.getElementById('toast');
+    t.textContent=msg; t.style.display='block';
+    clearTimeout(toast._t);
+    toast._t=setTimeout(function(){t.style.display='none';},2800);
+}
+
+// Initial
+loadStats();
+</script>
+</body>
+</html>
     <style>
         body {
             background-color: #111;

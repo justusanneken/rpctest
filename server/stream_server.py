@@ -85,4 +85,4 @@ def index():
     return render_template('index.html')
 
 # Starte Server
-app.run(host='0.0.0.0', port=5050, threaded=True)
+app.run(host='0.0.0.0', port=5151, threaded=True)

@@ -4,7 +4,7 @@ import time
 import cv2                       
 
 # Server IP
-SERVER_URL = "http://10.0.0.8:5050/upload"
+SERVER_URL = "http://10.0.0.8:5151/upload"
 
 # Camera Einstellen
 camera = Picamera2()

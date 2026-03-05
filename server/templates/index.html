@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pi Camera</title>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            text-align: center;
+            font-family: Arial, sans-serif;
+            padding-top: 40px;
+        }
+
+        img {
+            width: 800px;
+            border: 2px solid gray;
+        }
+
+        /*Rote Box*/
+        #alert {
+            display: none;
+            background-color: red;
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            padding: 14px 30px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: inline-block;
+            visibility: hidden;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="alert">⚠ Bewegung erkannt!!</div>
+
+    
+    <br/>
+    <img src="/stream" />
+
+    <script>
+        //Bewegungserkennungs Abfrage
+        setInterval(function() {
+            fetch('/status')
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    var alert = document.getElementById('alert');
+                    if (data.motion) {
+                        alert.style.visibility = 'visible';
+                    } else {
+                        alert.style.visibility = 'hidden';
+                    }
+                });
+        }, 1000);
+    </script>
+</body>
+</html>
